@@ -1,32 +1,41 @@
-# newman-reporter-debug (ALPHA)
+# Jerry
+`newman-reporter-jerry`
+
 This is a debugging reporter for Newman.
+
+> This reporter is under development and is in beta.
 
 ## Installation
 
 ```term
-npm i newman-reporter-debug -g;
+npm i newman-reporter-jerry -g;
 ```
 
 ## Usage
 
 ```term
-newman run examples/sample-collection.json -r debug
+newman run examples/sample-collection.json -r jerry
 ```
 
 ```term
-newman run examples/sample-collection.json -r cli,debug
+newman run examples/sample-collection.json -r cli,jerry
 ```
 
-### --reporter-debug-silent
-### --reporter-debug-verbose
+## Featurea
 
-### --reporter-debug-force-clear-run-summary
-Newman tracks the executions of each and every request so that some reporters can use the same to do
-post-run analyses. `--forceClearRunSummary` stops the recording of this data. Note that this may 
-have adverse effects on other reporters if they depend on this trace data.
+- Press CTR+C any time to break run
+- Break on next request
+- Break on next iteration
+- Break on next console log
+- Break on run end
+- Break on variable change
+- Break on setNextRequest
+- Inspect all variables
+- Show last network activity
+- Abort run
+- Force abort run
 
-### --reporter-debug-trace-memory
+## CLI Options
 
-#### --reporter-debug-trace-memory-graph
-Do enable `--silent` flag to see the graph! Else other reporters and CLI output will interfere!
-![image](https://user-images.githubusercontent.com/232373/127682418-2a1e8930-0e1e-494b-8290-ac45dea154ff.png)
+- `--reporter-jerry-break-on-start`
+
