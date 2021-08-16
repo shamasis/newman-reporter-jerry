@@ -21,7 +21,7 @@ newman run examples/sample-collection.json -r jerry
 newman run examples/sample-collection.json -r cli,jerry
 ```
 
-## Featurea
+## Features
 
 - Press CTR+C any time to break run
 - Break on next request
