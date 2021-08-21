@@ -1,293 +1,266 @@
-const Table = require('cli-table3'),
-    colors = require('colors'),
-    consola = require('consola'),
-    filesize = require('filesize'),
-    prettyms = require('pretty-ms'),
+/**
+ * @fileOverview
+ *
+ *  ___ ___   _   ___  __  __ ___
+ * | _ \ __| /_\ |   \|  \/  | __|
+ * |   / _| / _ \| |) | |\/| | _|
+ * |_|_\___/_/ \_\___/|_|  |_|___|
+ *
+ * This is the reporter for debugging collections using Newman.
+ *
+ * @note FOR CONTRIBUTORS
+ *
+ * The easiest way to read this file is to understand a couple of things
+ * 1. The act of breaking the flow is orchestrated by `break-manager` and the same
+ *    is setup at the beginning to connect to a newman run's pause/resume functions
+ * 2. This module needs `run` object from start event of newman. This may not be available
+ *    on older newman versions. The run object is used everywhere as if it exists, and it's
+ *    actual value though is set at the far end of this code in the `start` event listener
+ * 3. This project uses `semistandard` linting module.
+ *
+ * In short,
+ * (a) actions are attached to break manager using `brk.add`
+ * (b) upon break these actions are presented and then decided to move or not
+ * (c) read break manager inline documentation to understand how `brk.add` works!
+ *
+ * To add a new action should be very easy:
+ * 1. Add a new function and option using brk.add (note that the definition point in code sets
+ *    the order of display, hence keep it somewhere appropriate and not just plonk it at the
+ *    end!)
+ * 2. This option will be presented on break. Do something in the function you added to brk.add
+ *    and when done, call `done`.
+ * 3. If you want your action to cause continue or stay in paused state, set it as boolean
+ *    value of the 2nd parameter to the `done` function.
+ */
+const path = require('path');
+const colors = require('colors');
+const consola = require('consola');
+const filesize = require('filesize');
 
-    bannerText = require('./banner.js'),
-    VarTracker = require('./vartracker'),
-    BreakManager = require('./break-manager');
+const util = require('./util');
+const runtimeUtils = require('./runtime-utils');
+const bannerText = require('./banner.js');
+const VarTracker = require('./vartracker');
+const BreakManager = require('./break-manager');
 
-const forEachRight = ((arr, callback) => arr
-            .slice().reverse().forEach(callback)),
-
-    print = function () {
-        return process.stdout.write(...arguments);
-    },
-
-    timeUnit = function (ms) {
-        if (ms < 1) {
-            return `${parseInt(ms * 1000, 10)}µs`;
-        }
-
-        return (ms < 1998) ? `${parseInt(ms, 10)}ms` : prettyms(ms || 0);
-    },
-
-    extractSNR = function (executions) {
-        var snr;
-
-        // eslint-disable-next-line lodash/collection-method-value
-        Array.isArray(executions) && forEachRight(executions, function (execution) {
-            var nextReq = (execution && execution.result && 
-                    execution.result.return && execution.result.return.nextRequest);
-
-            if (nextReq) {
-                snr = nextReq;
-                return false;
-            }
-        });
-
-        return snr;
-    };
+const print = util.print;
+const printlf = util.printlf;
 
 // Standard newman reporter construction interface
 module.exports = function JerryReporter (newman, reporterOptions, options) {
-    console.log(colors.rainbow(bannerText));
+  // Announce Jerry in CLI
+  // @note that we are not respecting any "silent" flag for Jerry
+  printlf(colors.rainbow(bannerText));
+  consola.info(`Loaded Newman Jerry Reporter v${require(path.join(__dirname, '/package.json')).version}`);
+  consola.log(`  You can press ${colors.bold('CTRL+C')} any moment to break the run.\n`);
 
-    consola.info(`Loaded Newman Jerry Reporter v${require(__dirname + '/package.json').version}`);
-    consola.log(`  You can press ${colors.bold('ctrl+c')} any moment to break the run.\n`);
+  const brk = new BreakManager();
+  const trk = new VarTracker(); // \_(ツ)_/¯ on name!
 
-    let run,
-        latestNetwork;
+  let run, // is assigned only after `start` event
+    latestNetwork;
 
-    const trackVariables = Boolean(reporterOptions.trackVars),
-        breaker = new BreakManager(),
-        variableTracker = new VarTracker();
-
-    breaker.setup({
-        onBreak: function (done) {
-            run.pause(done);
-        },
-        onContinue: function (done) {
-            run.resume(done);
-        }
+  brk.add(`Break on ${colors.bold('next request')}`, function (done) {
+    newman.once('request', function () {
+      brk.break('request');
     });
 
-    breaker.add(`Continue (press ${colors.bold('ctrl+c')} to break)`, function (done) {
-        done(null, true);
+    done(null, true);
+  });
+
+  brk.add(`Break on ${colors.bold('next iteration')}`, function (done) {
+    newman.once('beforeIteration', function () {
+      brk.break('iteration start');
     });
 
-    breaker.add(`Break on ${colors.bold('next request')}`, function (done) {
-        newman.once('request', function () {
-            breaker.break('request');
-        });
+    done(null, true);
+  });
 
-        done(null, true);
+  brk.add(`Break on ${colors.bold('next console log')}`, function (done) {
+    newman.once('console', function () {
+      brk.break('console log');
     });
 
-    breaker.add(`Break on ${colors.bold('next iteration')}`, function (done) {
-        newman.once('beforeIteration', function () {
-            breaker.break('iteration start');
-        });
-        
-        done(null, true);
+    done(null, true);
+  });
+
+  brk.add(`Break on ${colors.bold('the end of run')}`, function (done) {
+    newman.on('iteration', function (arg0, args) { // arg0 is error, we have no business handling
+      if (args.cursor.eof) {
+        brk.break('end of run');
+      }
     });
 
-    breaker.add(`Break on ${colors.bold('next console log')}`, function (done) {
-        newman.once('console', function () {
-            breaker.break('console log');
-        });
-        
-        done(null, true);
-    });
+    done(null, true);
+  });
 
-    breaker.add(`Break on ${colors.bold('run end')}`, function (done) {
-        newman.on('iteration', function (err, args) {
-            if (args.cursor.eof) {
-                breaker.break('end of run');
-            }
-        });
-        
-        done(null, true);
-    });
+  brk.add(`Break on ${colors.bold('variable change')}`, function (done) {
+    const onChangeTracker = function () {
+      const col = trk.track('Collection');
+      const env = trk.track('Environment');
+      const glb = trk.track('Global');
 
-    breaker.add(`Break on ${colors.bold('variable change')}`, function (done) {
-        let onChangeTracker = function () {
-            let col = variableTracker.track('Collection'),
-                env = variableTracker.track('Environment'),
-                glb = variableTracker.track('Global');
+      if (env.modified || glb.modified || col.modified) {
+        newman.off('item', onChangeTracker);
+        VarTracker.printStatusLists(col, env, glb);
 
-            if (env.modified || glb.modified || col.modified) {
-                newman.off('item', onChangeTracker);
+        brk.break('change of variable');
+      }
+    };
 
-                let table = new Table({ head: ['Status', 'Name', 'Value', 'Scope'] });
-                table.push(...col);
-                table.push(...env);
-                table.push(...glb);
-                console.log(table.toString());
+    newman.on('item', onChangeTracker);
 
-                breaker.break('change of variable');
-            }
-        };
+    done(null, true);
+  });
 
-        newman.on('item', onChangeTracker);
-        
-        done(null, true);
-    });
+  brk.add(`Break on ${colors.bold('setNextRequest')}`, function (done) {
+    let latestSNR;
 
-    breaker.add(`Break on ${colors.bold('setNextRequest')}`, function (done) {
-        let latestSNR;
+    const sniffSNR = function (err, o) {
+      if (err) {
+        return;
+      }
 
-        let sniffSNR = function (err, o) {
-                if (err) {
-                    return;
-                }
+      const snr = runtimeUtils.extractSNR(o.executions);
 
-                let snr = extractSNR(o.executions);
+      if (snr) {
+        latestSNR = snr;
+      }
+    };
 
-                if (snr) {
-                    latestSNR = snr;
-                }
-            },
+    const reactToSNRChange = function (arg0, o) { // arg0 is error, we have no business handling
+      if (latestSNR) {
+        newman.off('test', sniffSNR);
+        newman.off('item', reactToSNRChange);
+        brk.break('change of execution order');
+      }
+    };
 
-            reactToSNRChange = function (err, o) {
-                if (latestSNR) {
-                    newman.off('test', sniffSNR);
-                    newman.off('item', reactToSNRChange);
-                    breaker.break(`change of flow`);
-                }
-            };
+    newman.on('test', sniffSNR);
+    newman.on('item', reactToSNRChange);
 
-        newman.on('test', sniffSNR);
-        newman.on('item', reactToSNRChange);
+    done(null, true);
+  });
 
-        done(null, true);
+  brk.add('Inspect all variables', function (done) {
+    VarTracker.printLists(VarTracker.list(run.state.collectionVariables),
+      VarTracker.list(run.state.environment), VarTracker.list(run.state.globals));
 
-    });
+    done(null, false);
+  });
 
-    breaker.add('Inspect all variables', function (done) {
-        let table = new Table({ head: ['Name', 'Value', 'Scope'] });
+  brk.add('Show last network activity', function (done) {
+    consola.log('');
 
-        table.push(...VarTracker.list(run.state.collectionVariables, 'Collection'));
-        table.push(...VarTracker.list(run.state.environment, 'Environment'));
-        table.push(...VarTracker.list(run.state.globals, 'Global'));
-        console.log(table.toString());
-        
-        done(null, false);
-    });
+    if (!latestNetwork) {
+      consola.info('No last recorded network activity');
+      return done(null, false);
+    }
 
-    breaker.add('Show last network activity', function (done) {
-        consola.log('');
+    if (latestNetwork.err) {
+      consola.error(latestNetwork.err);
+      return done(null, false);
+    }
 
-        if (!latestNetwork) {
-            consola.info(`No last recorded network activity`);
-            return done(null, false);
-        }
+    const req = latestNetwork.req;
+    const res = latestNetwork.res;
+    const mime = res.contentInfo();
 
-        if (latestNetwork.err) {
-            consola.error(err);
-            return done(null, false);
-        }
+    const SEP = colors.gray('★ ');
 
-        let req = latestNetwork.req,
-            res = latestNetwork.res,
-            mime = res.contentInfo();
+    print(`${req.method} ${req.url}\n`);
 
-        const SEP = colors.gray('★ ');
+    print(`${res.code} ${res.reason()} ${SEP}`);
+    print(`${util.prettyms(res.responseTime)} ${colors.gray('time')} ${SEP}`);
+    print(`${filesize(req.size().total, { spacer: '' })}${colors.gray('↑')} ${filesize(res.size().total, { spacer: '' })}${colors.gray('↓')} ${colors.gray('size')} ${SEP}`);
+    print(`${req.headers.members.length}${colors.gray('↑')} ${res.headers.members.length}${colors.gray('↓')} ${colors.gray('headers')} ${SEP}`);
+    print(`${res.cookies.members.length} ${colors.gray('cookies')}\n\n`);
 
-        print(`${req.method} ${req.url}\n`);
+    // @todo add auth 🔒 snippet
 
-        print(`${res.code} ${res.reason()} ${SEP}`)
-        print(`${timeUnit(res.responseTime)} ${colors.gray('time')} ${SEP}`);
-        print(`${filesize(req.size().total, {spacer: ''})}${colors.gray('↑')} ${filesize(res.size().total, {spacer: ''})}${colors.gray('↓')} ${colors.gray('size')} ${SEP}`);
-        print(`${req.headers.members.length}${colors.gray('↑')} ${res.headers.members.length}${colors.gray('↓')} ${colors.gray('headers')} ${SEP}`);
-        print(`${res.cookies.members.length} ${colors.gray('cookies')}\n\n`);
+    print(`${mime.fileName} ${SEP}`);
+    print(`${mime.contentType} ${SEP}`);
+    print(`${mime.mimeType} ${SEP}`);
+    print(`${mime.mimeFormat} ${SEP}`);
+    print(`${mime.charset}\n`);
+    print(colors.gray(res.text()) + '\n');
 
-        // @todo add auth 🔒 snippet
+    return done(null, false);
+  });
 
-        print(`${mime.fileName} ${SEP}`);
-        print(`${mime.contentType} ${SEP}`);
-        print(`${mime.mimeType} ${SEP}`);
-        print(`${mime.mimeFormat} ${SEP}`);
-        print(`${mime.charset}\n`);
-        print(colors.gray(res.text()) + '\n');
+  newman.on('request', function (err, args) {
+    latestNetwork = {
+      err: err,
+      req: args.request,
+      res: args.response
+    };
+  });
 
-        return done(null, false);
-    });
+  newman.on('done', function () {
+    latestNetwork = null;
+  });
 
-    breaker.add('Force abort run', function (done) {
-        process.exit(1);
-        done(null, true);
-    });
+  brk.add('Abort run', function (done) {
+    if (run) {
+      run.abort();
+    }
 
-    breaker.add('Abort run', function (done) {
-        run.abort();
-        done(null, true);
-    });
+    done(null, true);
+  });
 
+  brk.add('Force abort run (press ESC)', function () {
+    process.exit(1);
+  });
 
-    newman.on('start', function (err, args) {
-        if (err) {
-            consola.warn('Unable to initialise Jerry. There was an error during run start.\n' +
+  newman.on('start', function (err, args) {
+    if (err) {
+      consola.warn('Unable to initialise Jerry. There was an error during run start.\n' +
                 colors.gray('This is unlikely because of Jerry and most likely because of a bug in some reporter or ' +
                 'a bug in Newman itself. Having said that, the error described below could be a clue ' +
                 'leading to the cause.'));
-            consola.error(err);
-            return;
-        }
+      consola.error(err);
+      return;
+    }
 
-        if (!(args && args.run)) {
-            consola.warn('Unable to initialise Jerry. Could not integrate accurately with Newman.\n' +
+    if (!(args && args.run)) {
+      consola.warn('Unable to initialise Jerry. Could not integrate accurately with Newman.\n' +
                 colors.gray('This is likely because you are running an older version of Newman that is not capable ' +
                 'of exposing appropriate internal interfaces. Try re-running by upgrading Newman to the latest ' +
                 'version using `npm i newman@latest` command.'));
-            return;
-        }
+      return;
+    }
 
-        run = args.run;
-        
-        variableTracker.attach('Collection', run.state.collectionVariables);
-        variableTracker.track('Collection');
+    run = args.run;
 
-        variableTracker.attach('Environment', run.state.environment);
-        variableTracker.track('Environment');
-
-        variableTracker.attach('Global', run.state.globals);
-        variableTracker.track('Global');
-
-        let sigint = 0;
-        process.on('SIGINT', function () {
-            try {
-                sigint += 1;
-
-                if (sigint > 1) {
-                    process.exit();
-                    return;
-                }
-                
-                if (!run.paused) {
-                    sigint = 0;
-                    breaker.break();
-                }
-            }
-            catch (e) {
-                consola.error(e);
-                process.exit(1);
-            }
-        });
-
-        if (reporterOptions.breakOnStart) {
-            breaker.break('execution start');
-        }
+    // break manager is required to be setup before use. whenever continue or break
+    // is triggered, we pause or resume the run.
+    brk.setup({
+      onBreak: function (done) {
+        run.pause(done);
+      },
+      onContinue: function (done) {
+        run.resume(done);
+      },
+      signal: true // mark that ctrl+c will be hijacked
     });
 
-    newman.on('request', function (err, args) {
-        latestNetwork = {
-            err: err,
-            req: args.request,
-            res: args.response
-        };
-    });
+    // setup all the trackers for variables in the run (setting `true` does one initial tracking)
+    trk.attach('Collection', run.state.collectionVariables, true);
+    trk.attach('Environment', run.state.environment, true);
+    trk.attach('Global', run.state.globals, true);
 
-    newman.on('done', function (err) {
-        delete latestNetwork;
+    if (!reporterOptions.continueOnStart) {
+      brk.break('execution start');
+    }
+  });
 
-        if (!run) { return; }
+  newman.on('done', function (err) {
+    if (!run) { return; } // implies newman was older than needed
 
-        if (err) {
-            consola.error(err);
-        }
+    if (err) {
+      consola.error(err);
+    }
 
-        consola.info(`Newman execution completed.`);
-    });
+    consola.info('Newman execution completed.');
+  });
 };
