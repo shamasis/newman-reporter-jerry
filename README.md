@@ -3,7 +3,6 @@
 
 This is a debugging reporter for Newman.
 
-> This reporter is under development and is in beta.
 
 ## Installation
 
