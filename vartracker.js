@@ -1,121 +1,131 @@
 /**
  * @moduleOverview
- * 
+ *
  * This module tracks changes and snapshot on variable changes. This works by accepting a variable scope and then setup
  * tracking abilities in them. It then can be asked to check in the same scope at a time in future and tell us what
  * changed in them.
- * 
+ *
  */
-const EventEmitter = require('events'),
-	colors = require('colors'),
+const colors = require('colors');
+const Table = require('cli-table3');
 
-	trackerSymbol = Symbol('Tracker'),
-	_key = Symbol('Tracker Shadow Key'),
-	_val = Symbol('Tracker Shadow Value');
+const trackerSymbol = Symbol('Jerry: Tracker');
+const trackerKey = Symbol('Jerry: Tracker Shadow Key');
+const trackerVal = Symbol('Jerry: Tracker Shadow Value');
 
+class VarTracker {
+  constructor () {
+    this.attachments = new Map();
+  }
 
-class VarTracker extends EventEmitter {
+  attach (name, scope, andTrack) {
+    this.attachments.set(name, scope);
+    scope[trackerSymbol] = new Map(); // hidden store
+    scope[trackerSymbol].scopeName = name;
+    andTrack && this.track(name);
+  }
 
-	constructor () {
-		super();
+  detach (name) {
+    const scope = this.attachments.get(name);
 
-		this.attachments = new Map();
-	}
+    if (scope) {
+      VarTracker.uninspect(scope);
+      this.attachments.delete(name);
+    }
+  }
 
-	attach (name, scope) {
-		this.attachments.set(name, scope);
-	}
+  track (name) {
+    const scope = this.attachments.get(name);
 
-	detach (name) {
-		let scope = this.attachments.get(name);
+    if (!scope) {
+      return;
+    }
 
-		if (scope) {
-			VarTracker.uninspect(scope);
-			this.attachments.delete(name);
-		}
-	}
+    const report = VarTracker.inspect(scope);
 
-	track (name) {
-		const scope = this.attachments.get(name);
+    if (report.added || report.deleted || report.updated) {
+      report.modified = true;
+    }
 
-		if (!scope) {
-			return;
-		}
+    return report;
+  }
 
-		let report = VarTracker.inspect(scope, name);
+  static list (varscope) {
+    const tracker = varscope[trackerSymbol];
+    const scopeName = tracker.scopeName;
 
-		if (report.added || report.deleted || report.updated) {
-			report.modified = true;
-			// this.emit('modified', name, report);
-		}
+    return varscope.values.members.map((variable) => {
+      return [variable.key, variable.value, scopeName];
+    });
+  }
 
-		return report;
-	}
+  static inspect (varscope) {
+    const tracker = varscope[trackerSymbol];
+    const scopeName = tracker.scopeName;
+    const diff = [];
 
-	static list (varscope, scopeName) {
-		return varscope.values.members.map((variable) => {
-			return [variable.key, variable.value, scopeName];
-		});
-	}
+    varscope.values.members.forEach((variable) => {
+      let shadow = tracker.get(variable);
 
-	static inspect (varscope, scopeName) {
-		let tracker = varscope[trackerSymbol] || (varscope[trackerSymbol] = new Map()),
-			diff = [];
+      // if shadow item exists then we track the change
+      if (shadow) {
+        let keyChange,
+          valChange;
 
-		varscope.values.members.forEach((variable) => {
-			let shadow = tracker.get(variable);
+        if (shadow[trackerKey] !== variable.key) {
+          keyChange = `${colors.gray.strikethrough(shadow[trackerKey])} ${variable.key}`;
+        }
 
+        if (shadow[trackerVal] !== variable.value) {
+          valChange = `${variable.value} ${colors.gray.strikethrough(shadow[trackerVal])}`;
+        }
 
-			// if shadow item exists then we track the change
-			if (shadow) {
-				let keyChange, 
-					valChange;
+        shadow[trackerKey] = variable.key;
+        shadow[trackerVal] = variable.value;
 
-				if (shadow[_key] != variable.key) {
-					keyChange = `${colors.gray.strikethrough(shadow[_key])} ${variable.key}`;
-				}
+        if (keyChange || valChange) {
+          diff.updated = true;
+          diff.push(['updated', keyChange || variable.key, valChange || variable.value, scopeName]);
+        }
 
-				if (shadow[_val] != variable.value) {
-					valChange = `${colors.gray.strikethrough(shadow[_val])} ${variable.value}`;
-				}
+      // if shadow item does not exist, implies this is a newly added item since last inspection and we need to
+      // create a new shadow and mark as added and store shadow data
+      } else {
+        shadow = tracker.set(variable, variable);
+        variable[trackerKey] = variable.key;
+        variable[trackerVal] = variable.value;
 
-				shadow[_key] = variable.key;
-				shadow[_val] = variable.value;
+        diff.added = true;
+        diff.push(['added', variable.key, variable.value, scopeName]); // paired for printStatusLists
+      }
+    });
 
-				if (keyChange || valChange) {
-					diff.updated = true;
-					diff.push(['updated', keyChange || variable.key, valChange || variable.value, scopeName]);
-				}
-				
-			}
-			// if shadow item does not exist, implies this is a newly added item since last inspection and we need to 
-			// create a new shadow and mark as added and store shadow data
-			else {
-				shadow = tracker.set(variable, variable);
-				variable[_key] = variable.key;
-				variable[_val] = variable.value;
+    tracker.forEach((shadow) => {
+      if (!varscope.values.members.find(variable => variable === shadow)) {
+        diff.deleted = true;
+        diff.push(['deleted', shadow.key, shadow.value, scopeName]);
+        tracker.delete(shadow);
+      }
+    });
 
-				diff.added = true;
-				diff.push(['added', variable.key, variable.value, scopeName]);
-			}
-			
-		});
+    return diff;
+  }
 
-		tracker.forEach((shadow) => {
-			if (!varscope.values.members.find(variable => variable === shadow)) {
-				diff.deleted = true;
-				diff.push(['deleted', shadow.key, shadow.value, scopeName]);
-				tracker.delete(shadow);
-			}
-		});
+  static uninspect (varscope) {
+    delete varscope[trackerSymbol];
+  }
 
-		return diff;
-	}
+  static printLists (...lists) {
+    const table = new Table({ head: ['Name', 'Value', 'Scope'] });
+    lists.forEach(row => table.push(...row));
+    process.stdout.write(table.toString() + '\n');
+  }
 
-	static uninspect (varscope) {
-		delete varscope[trackerSymbol];
-	}
-
+  static printStatusLists (...lists) {
+    const table = new Table({ head: ['Status', 'Name', 'Value', 'Scope'] });
+    lists.forEach(row => table.push(...row));
+    process.stdout.write(table.toString() + '\n');
+  }
 }
 
 module.exports = VarTracker;

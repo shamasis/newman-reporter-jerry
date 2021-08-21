@@ -30,5 +30,8 @@
     "pretty-ms": "^7.0.1",
     "prompts": "^2.4.1"
   },
-  "optionalDependencies": {}
+  "optionalDependencies": {},
+  "devDependencies": {
+    "semistandard": "^16.0.1"
+  }
 }
