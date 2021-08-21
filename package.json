@@ -1,10 +1,10 @@
 {
   "name": "newman-reporter-jerry",
-  "version": "1.0.0-beta.1",
-  "description": "A reporter ",
+  "version": "1.0.0",
+  "description": "Jerry is a reporter for Newman (Postman CLI Companion). It enables one to break and debug a Postman Collection run.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "semistandard && node *.js"
   },
   "repository": {
     "type": "git",
@@ -17,7 +17,7 @@
     "postman",
     "api"
   ],
-  "author": "Shamasis Bhattacharya <mail@shamasis.net>",
+  "author": "Postman Labs <help@postman.com> (=)",
   "license": "Apache-2.0",
   "bugs": {
     "url": "https://github.com/shamasis/newman-reporter-jerry/issues"
@@ -30,5 +30,11 @@
     "pretty-ms": "^7.0.1",
     "prompts": "^2.4.1"
   },
-  "optionalDependencies": {}
+  "optionalDependencies": {},
+  "devDependencies": {
+    "semistandard": "^16.0.1"
+  },
+  "engines": {
+    "node": ">=10"
+  }
 }

@@ -1,8 +1,8 @@
 /**
  * @moduleOverview
- * 
- * Stores the ascii symbols for showing NDR banner!
- * https://patorjk.com/software/taag/#p=display&f=Delta%20Corps%20Priest%201&t=Jerry
+ *
+ * Stores the ascii symbols for showing Jerry banner!
+ * Created using: https://patorjk.com/software/taag/#p=display&f=Delta%20Corps%20Priest%201&t=Jerry
  */
 module.exports = `
      ▄█    ▄████████    ▄████████    ▄████████ ▄██   ▄   
