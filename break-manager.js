@@ -72,7 +72,7 @@ class CLIBreakManager {
 
     if (options.signal) {
       let sigint = 0;
-      process.on('SIGINT', function () {
+      process.on('SIGINT', () => {
         try {
           sigint += 1;
 
@@ -80,9 +80,9 @@ class CLIBreakManager {
             process.exit();
           }
 
-          if (this.broken) {
+          if (!this.broken) {
             sigint = 0;
-            this.break();
+            this.break('CTRL+C interrupt');
           }
         } catch (e) {
           console.error(e);
