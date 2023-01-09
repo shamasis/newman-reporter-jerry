@@ -3,6 +3,7 @@
 
 This is a debugging reporter for Newman.
 
+![jerry-1](https://user-images.githubusercontent.com/232373/130334038-d592ec12-8424-4f3e-a60a-2909ef5fe2fc.gif)
 
 ## Installation
 
@@ -38,8 +39,6 @@ newman run examples/sample-collection.json -r cli,jerry
 
 - `--reporter-jerry-continue-on-start`
 This command prevents jerry from starting the run in a paused state. If specified, you can still break the run at any moment by pressing `CTRL+C`.
-
-![jerry-1](https://user-images.githubusercontent.com/232373/130334038-d592ec12-8424-4f3e-a60a-2909ef5fe2fc.gif)
 
 
 
