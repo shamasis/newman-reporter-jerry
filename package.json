@@ -1,6 +1,6 @@
 {
   "name": "newman-reporter-jerry",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Jerry is a reporter for Newman (Postman CLI Companion). It enables one to break and debug a Postman Collection run.",
   "main": "index.js",
   "scripts": {
@@ -25,12 +25,12 @@
   "homepage": "https://github.com/shamasis/newman-reporter-jerry#readme",
   "dependencies": {
     "cli-table3": "^0.6.0",
+    "colors": "^1.4.0",
     "consola": "^2.15.3",
     "filesize": "^7.0.0",
     "pretty-ms": "^7.0.1",
     "prompts": "^2.4.1"
   },
-  "optionalDependencies": {},
   "devDependencies": {
     "semistandard": "^16.0.1"
   },
